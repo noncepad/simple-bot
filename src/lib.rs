@@ -1,7 +1,7 @@
 use std::{cell::RefCell, cell::UnsafeCell, rc::Rc};
 
-use catscope_rust_bot::{event_loop::run, exports::wasi::cli::run::Guest, message::Parser};
 use catscope_rust_bot::export;
+use catscope_rust_bot::{event_loop::run, exports::wasi::cli::run::Guest, message::Parser};
 // wit_bindgen's generated `export!` macro body references its own inner
 // per-interface "cabi" macro via `self::exports::wasi::cli::run::...` --
 // that only resolves if the `exports` module itself (not just the
@@ -35,6 +35,7 @@ impl Guest for Component {
         for x in args {
             l_arg.push(x);
         }
+        // Set the event loop object here.
         let b = brain::testperpv1::TestPerpV1Hook::new(Rc::new(UnsafeCell::new(Parser::default())));
         let sampler = Rc::new(RefCell::new(b));
 
