@@ -1,0 +1,16 @@
+[package]
+name = "simple-bot"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+catscope-rust-bot = { path = "../catscope-rust-bot", default-features = false }
+# Versions mirror catscope-rust-bot's own Cargo.toml exactly -- these are
+# used directly by the copied brain module (see src/brain/testperpv1),
+# not by this crate's own lib.rs.
+solana-sdk = "3.0.0"
+solana-system-interface = { version = "2.0.0", features = ["bincode"] }
+spl-token = { version = "9", features = ["no-entrypoint"] }
