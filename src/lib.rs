@@ -26,16 +26,20 @@ pub mod brain;
 struct Component;
 
 impl Guest for Component {
-    /// This is the entry point for the bot. Swap `testperpv1::TestPerpV1Hook`
-    /// for your own brain (copy the same mod.rs/configuration.rs/message.rs/
-    /// state.rs shape) once you're ready to write real trading logic here.
+    /// This is the entry point for the bot. See /SKILL.md ("Step-by-step:
+    /// adding a new strategy") for the full walkthrough -- in short: copy
+    /// `brain::testperpv1` to a new `brain::<your_strategy>` module,
+    /// rename its `Hook` type, and swap the constructor call below for
+    /// your new type. This is the one line that actually selects which
+    /// strategy runs.
     fn run() -> Result<(), ()> {
         let args = std::env::args();
         let mut l_arg = Vec::new();
         for x in args {
             l_arg.push(x);
         }
-        // Set the event loop object here.
+        // Set the event loop object here -- SKILL.md step 4: swap for
+        // `brain::<your_strategy>::YourStrategyHook::new(...)`.
         let b = brain::testperpv1::TestPerpV1Hook::new(Rc::new(UnsafeCell::new(Parser::default())));
         let sampler = Rc::new(RefCell::new(b));
 
