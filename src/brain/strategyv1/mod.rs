@@ -25,7 +25,7 @@
 //! hours (`SystemTime::now()`), not a slot/commit cadence.
 //! ```
 use crate::{
-    brain::testperpv1::{
+    brain::strategyv1::{
         configuration::Configuration,
         message::{CustomMessageInbound, CustomMessageOutbound},
         state::{State, StateHelper},
@@ -45,7 +45,7 @@ pub(crate) mod configuration;
 pub(crate) mod message;
 pub(crate) mod state;
 
-pub struct TestPerpV1Hook {
+pub struct StrategyV1Hook {
     nonce: Rc<UnsafeCell<u32>>,
     rc_parser: Rc<UnsafeCell<Parser<Configuration, CustomMessageInbound, CustomMessageOutbound>>>,
     rc_configuration: Rc<UnsafeCell<Configuration>>,
@@ -56,7 +56,7 @@ pub struct TestPerpV1Hook {
     o_poller: Option<crate::event_loop::EventPoller>,
 }
 
-impl TestPerpV1Hook {
+impl StrategyV1Hook {
     pub fn new(
         rc_parser: Rc<
             UnsafeCell<Parser<Configuration, CustomMessageInbound, CustomMessageOutbound>>,
@@ -90,7 +90,7 @@ impl TestPerpV1Hook {
     }
 }
 
-impl EventHandler for TestPerpV1Hook {
+impl EventHandler for StrategyV1Hook {
     fn on_load(
         &mut self,
         poller: crate::event_loop::EventPoller,
