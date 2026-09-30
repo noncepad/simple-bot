@@ -972,38 +972,14 @@ impl<'a> StateHelper<'a> {
     /// router, only Solend/Kamino/marginfi deposit+withdraw.
     pub(crate) fn evaluate(&mut self) {
         let t0 = std::time::Instant::now();
-        self.evaluate_inner();
-        // Accumulated (not logged here) -- same reasoning as
-        // `low_latency()`'s own accumulate-don't-log comment: this fires
-        // after every event, so logging every call would reintroduce the
-        // log-volume problem already found to contribute to real
-        // `stdio timeout` disconnects. `start()` logs and resets this.
-        self.state.evaluate_elapsed_since_last_start += t0.elapsed();
-        self.state.evaluate_count_since_last_start += 1;
-    }
-
-    fn evaluate_inner(&mut self) {
         self.wallet.set_priority_fee(PriorityLevel::Medium);
-        // Idempotent/self-latching (2026-08-28): only actually queues the
-        // real create-nonce transaction once (Wallet::ensure_bundler_nonce_created
-        // no-ops on every call after the first, whether still unconfirmed
-        // or already Ready) -- safe to call unconditionally every tick so
-        // the durable-nonce account this wallet's Astralane landing path
-        // (Wallet::send_bundler_pair, driven by set_priority_fee(High) --
-        // see its own doc comment) needs is bootstrapped automatically at
-        // wallet load time instead of requiring a manual trigger.
         if let Some(owner) = self.state.wallet() {
             self.wallet.ensure_bundler_nonce_created(owner);
         }
         if self.state.o_dex.is_none() {
             return;
         }
-
-        // Drains whatever this evaluate() call (or `on_message`'s Wallet
-        // arm) built onto self.wallet and actually sends it -- same tail
-        // arbv1::state::evaluate/::evaluate both use.
-        // Without this, queued instructions would sit on the wallet
-        // forever and never reach the chain.
+        self.evaluate_inner();
         for (sig, result) in self.wallet.drain_and_send() {
             match result {
                 Ok(_) => {
@@ -1012,20 +988,14 @@ impl<'a> StateHelper<'a> {
                 Err(e) => log_error!("failed to send transaction {sig}: {e}"),
             }
         }
+        self.state.evaluate_elapsed_since_last_start += t0.elapsed();
+        self.state.evaluate_count_since_last_start += 1;
     }
 
-    /// Minimum slots to wait between an action and either retrying it
-    /// (bootstrap/deposit) or advancing past it (withdraw) -- generous
-    /// enough for a real transaction to land and confirm (real
-    /// confirmations observed manually this session landed within a few
-    /// seconds; this is deliberately several times that). `evaluate()`
-    /// fires on every event, which can be many times per second, so this
-    /// is what stops that from spamming duplicate transactions.
-    const TEST_ACTION_COOLDOWN_SLOTS: Slot = 100;
-    /// Deliberately small -- this only needs to prove the code path
-    /// works, not move meaningful capital. Matches the conservative end
-    /// of what was manually tested for real this session (5 USDC).
-    const TEST_AMOUNT_USD: f64 = 1.0;
+    fn evaluate_inner(&mut self) {
+        // put custom logic here
+    }
+
     /// How often (in slots) to report this wallet's most-referenced
     /// accounts back to the optimizer via `MessageSend::
     /// CommonAddressUpdate`, so `optimizer alt` can rank real Address
@@ -1035,91 +1005,7 @@ impl<'a> StateHelper<'a> {
     /// bytes): `28 + 100*36 = 3628`.
     const ACCOUNT_USAGE_REPORT_MAX_ENTRIES: usize = 100;
 
-    /// `true` while still within the cooldown window of the current
-    /// phase's last action -- see [`Self::TEST_ACTION_COOLDOWN_SLOTS`].
-    fn test_cooldown_active(&self) -> bool {
-        match self.state.last_action_slot {
-            Some(last) => {
-                self.state.last_slot.saturating_sub(last) < Self::TEST_ACTION_COOLDOWN_SLOTS
-            }
-            None => false,
-        }
-    }
-
-    /// Records that the current phase just sent a real action, starting
-    /// its cooldown.
-    fn test_mark_action(&mut self) {
-        self.state.last_action_slot = Some(self.state.last_slot);
-    }
-
-    /// Native lamports wrapped into wSOL and swapped to USDC per attempt
-    /// -- deliberately small like [`Self::TEST_AMOUNT_USD`], just enough
-    /// (at any plausible SOL price) to cover both protocols' $1 deposits
-    /// plus routing slippage, while leaving the rest of the child
-    /// wallet's SOL for transaction fees and obligation/collateral
-    /// account rent across the whole remaining sequence.
-    const TEST_WRAP_SOL_LAMPORTS: u64 = 50_000_000;
-    /// Lamports the child wallet must keep unwrapped as a fee/rent
-    /// buffer -- checked before wrapping so a low balance skips the
-    /// swap (and logs why) instead of leaving the wallet unable to pay
-    /// for its own transactions.
-    const TEST_SOL_FEE_RESERVE_LAMPORTS: u64 = 10_000_000;
-
-    fn solend_usdc_reserve_id(&self) -> Option<AccountId> {
-        let mint_usdc = self.configuration.mint_usdc;
-        let dex = self.state.o_dex.as_ref()?;
-        dex.solend().reserve_by_mint(mint_usdc).map(|(id, _)| id)
-    }
-
-    fn kamino_usdc_reserve_id(&self) -> Option<AccountId> {
-        let mint_usdc = self.configuration.mint_usdc;
-        let dex = self.state.o_dex.as_ref()?;
-        dex.kamino().reserve_by_mint(mint_usdc).map(|(id, _)| id)
-    }
-
-    fn marginfi_usdc_bank_id(&self) -> Option<AccountId> {
-        let mint_usdc = self.configuration.mint_usdc;
-        let dex = self.state.o_dex.as_ref()?;
-        dex.marginfi().reserve_by_mint(mint_usdc).map(|(id, _)| id)
-    }
-
-    fn solend_sol_reserve_id(&self) -> Option<AccountId> {
-        let mint_sol = self.configuration.mint_sol;
-        let dex = self.state.o_dex.as_ref()?;
-        dex.solend().reserve_by_mint(mint_sol).map(|(id, _)| id)
-    }
-
-    fn kamino_sol_reserve_id(&self) -> Option<AccountId> {
-        let mint_sol = self.configuration.mint_sol;
-        let dex = self.state.o_dex.as_ref()?;
-        dex.kamino().reserve_by_mint(mint_sol).map(|(id, _)| id)
-    }
-
-    fn marginfi_sol_bank_id(&self) -> Option<AccountId> {
-        let mint_sol = self.configuration.mint_sol;
-        let dex = self.state.o_dex.as_ref()?;
-        dex.marginfi().reserve_by_mint(mint_sol).map(|(id, _)| id)
-    }
-
-    /// Build and send a single spot swap leg (`mint_in` -> `mint_out`,
-    /// `amount_in` raw units) through `TradeRouter`/`DexState`, onto the
-    /// real `self.wallet` (not a scratch dry-run, unlike
-    /// `arbv1::build_execution_plan`) -- built instructions are picked
-    /// up by `evaluate()`'s `assemble()`/send loop above.
-    ///
-    /// This is a general-purpose hook, not a strategy of its own -- it
-    /// was built so a future decision could be wired in without first
-    /// re-deriving this plumbing, and `rebalance_portfolio` below is
-    /// now that decision (portfolio-target rebalancing); it stays
-    /// available for others too (collateral top-up, a cash-and-carry
-    /// spot leg against a Phoenix/Velocity funding edge, etc.). Same
-    /// untestable-outside-the-WASM-guest-runtime boundary
-    /// as `build_execution_plan` (see that method's doc comment): every
-    /// `Wallet`/`account_id_from_pubkey`-touching call here transitively
-    /// hits a WIT host import, so this has no native `cargo test`
-    /// coverage by design, matching the rest of this codebase's
-    /// `Wallet`-touching code.
-    pub(crate) fn execute_spot_leg(
+    fn execute_spot_leg(
         &mut self,
         mint_in: AccountId,
         mint_out: AccountId,
@@ -1279,7 +1165,7 @@ impl<'a> StateHelper<'a> {
     /// `FUNDING_CYCLE_MIN_MARGIN_USD` off the top before spending
     /// anything on directional purchases -- see `plan_rebalance_legs`'s
     /// doc comment for why.
-    pub(crate) fn rebalance_portfolio(&mut self) {
+    fn rebalance_portfolio(&mut self) {
         let Some(owner) = self.state.wallet() else {
             log_warn!(": rebalance skipped -- no wallet keypair yet");
             return;
