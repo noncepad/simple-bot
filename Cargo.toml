@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 # (see catscope-rust-bot's own commit bd0625c) build.rs needs -- earlier
 # tags predate that fix and have nothing for build.rs to read (no
 # contrib/ on this mirror, no target/*.json at the repo root either).
-catscope-rust-bot = { git = "https://github.com/noncepad/catscope-rust-bot.git", tag = "v0.5.10-catscope", default-features = false }
+catscope-rust-bot = { git = "https://github.com/noncepad/catscope-rust-bot.git", tag = "v0.5.11-catscope", default-features = false }
 #catscope-rust-bot = { path = "../catscope-rust-bot", default-features = false }
 # Versions mirror catscope-rust-bot's own Cargo.toml exactly -- these are
 # used directly by the copied brain module (see src/brain/testperpv1),

@@ -254,8 +254,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "catscope-rust-bot"
-version = "0.5.10"
-source = "git+https://github.com/noncepad/catscope-rust-bot.git?tag=v0.5.10-catscope#05276480bc27db02cbc07dfe05aac1b45f541e01"
+version = "0.5.11"
 dependencies = [
  "bincode 2.0.1",
  "bs58",
