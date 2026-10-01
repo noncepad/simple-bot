@@ -29,6 +29,8 @@ use crate::{
     util::{account_id_from_pubkey, rc_unlock, resolve_symbol_decimals, resolve_symbol_mint},
     wallet::{PriorityLevel, Wallet},
 };
+use catscope_rust_bot::log_debug;
+use catscope_rust_bot::trader::dex::update::StateChange;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::{clock::Slot, signature::Keypair, signer::Signer};
 use std::{
@@ -536,7 +538,35 @@ impl<'a> StateHelper<'a> {
             self.record_low_latency_slot(account.header.accountid, account.header.slot);
             self.wallet.on_account(account.header, d);
             if let Some(dex) = self.state.o_dex.as_mut() {
-                dex.on_account(account.header, d);
+                // `on_account` now reports what it just updated (see
+                // `trader::dex::update::StateChange`) -- read-only for
+                // now, per SKILL.md's phase-1 discipline. Once you know
+                // what you actually want to react to, match on this and
+                // write into `self.state`'s own fields instead of (or
+                // alongside) logging.
+                if let Some(change) = dex.on_account(account.header, d) {
+                    match change {
+                        StateChange::Blank => {}
+                        StateChange::Spot { token_a, token_b, price } => {
+                            // have token_a/token_b (the pool's two mints) + price
+                            log_debug!("state change: {change:?}");
+                        }
+                        StateChange::Lending {
+                            account_id,
+                            borrow_apy,
+                            supply_apy,
+                            price_usd,
+                        } => {
+                            log_debug!("state change: {change:?}");
+                        }
+                        StateChange::Perp {
+                            account_id,
+                            mark_price_usd,
+                        } => {
+                            log_debug!("state change: {change:?}");
+                        }
+                    };
+                }
                 dex.refresh_account_router(account.header.accountid, &mut self.state.spot_router);
             }
         }
@@ -554,7 +584,16 @@ impl<'a> StateHelper<'a> {
         // just drain the iterator (matches ::State::mid_on_tx's
         // own identical-purpose loop, rather than assuming it's safe to
         // skip entirely).
-        while transaction_list.transaction().is_some() {}
+        if let Some(dex) = self.state.o_dex.as_mut() {
+            while let Some((mut txwrapper, r)) = transaction_list.transaction() {
+                let n = txwrapper.ix_outer_len();
+                for i in 0..n {
+                    let ix = txwrapper.ix_outer(i);
+                    dex.on_tx(&ix, &r);
+                    txwrapper = ix.into();
+                }
+            }
+        }
     }
 
     pub(crate) fn current_epoch_ts() -> i64 {
