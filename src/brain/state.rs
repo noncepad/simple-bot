@@ -1,3 +1,4 @@
+use crate::brain::custom::CustomState;
 use crate::trader::dex::kamino_xstocks_watcher;
 use crate::util::pubkey_from_account_id;
 use crate::{
@@ -101,6 +102,7 @@ struct TargetAllocationEntry {
 
 #[derive(Debug)]
 pub(crate) struct State {
+    custom: CustomState,
     last_slot: Slot,
     slot_delta_since_start: Slot,
     /// Paces every large startup subscription burst (Raydium/Orca/
@@ -235,6 +237,7 @@ pub(crate) struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
+            custom: CustomState::default(),
             last_slot: 0,
             slot_delta_since_start: 0,
             subscription_queue: SubscriptionQueue::default(),
@@ -547,7 +550,11 @@ impl<'a> StateHelper<'a> {
                 if let Some(change) = dex.on_account(account.header, d) {
                     match change {
                         StateChange::Blank => {}
-                        StateChange::Spot { token_a, token_b, price } => {
+                        StateChange::Spot {
+                            token_a,
+                            token_b,
+                            price,
+                        } => {
                             // have token_a/token_b (the pool's two mints) + price
                             log_debug!("state change: {change:?}");
                         }
@@ -560,7 +567,8 @@ impl<'a> StateHelper<'a> {
                             log_debug!("state change: {change:?}");
                         }
                         StateChange::Perp {
-                            account_id,
+                            token_a,
+                            token_b,
                             mark_price_usd,
                         } => {
                             log_debug!("state change: {change:?}");
@@ -1032,8 +1040,170 @@ impl<'a> StateHelper<'a> {
     }
 
     fn evaluate_inner(&mut self) {
-        // put custom logic here
+        // put custom logic here to evaluate state and make a transaction
+        //
+        // access custom state
+        let _ = &self.state.custom;
+        // example spot leg
+        // self.execute_spot_leg(1, 2, 40).expect("build instruction");
+        // add example for perp leg -- see `example_open_perp_leg` below
+        // (commented out -- copy its body, don't call it directly: it's
+        // illustrative, not tuned for a real strategy's sizing/risk checks).
+        // self.example_open_perp_leg("SOL", true, 50.0).expect("build perp instruction");
+        //
+        // add example for lending/borrow -- see `example_lend_borrow_leg`
+        // below (commented out, same reasoning).
+        // self.example_lend_borrow_leg("SOL", 50.0).expect("build lend/borrow instructions");
     }
+
+    // ────────────────────────────────────────────────────────────────
+    // EXAMPLES BELOW ARE COMMENTED OUT ON PURPOSE.
+    //
+    // These are reference code for an agent (human or AI) learning how
+    // to append real instructions to `self.wallet` -- not live,
+    // compiled, or tested functions. Each shows the real function
+    // signatures this repo's `trader::dex::*` modules expose and the
+    // real setup (ATAs, obligation addresses, lot-size conversion) each
+    // one needs before it can be called. To actually use one: uncomment
+    // it, adjust the sizing/symbol/direction for your real strategy,
+    // and call it from `evaluate_inner` (see the two call sites above).
+    //
+    // fn example_open_perp_leg(
+    //     &mut self,
+    //     symbol: &str,
+    //     long: bool,
+    //     notional_usd: f64,
+    // ) -> Result<(), String> {
+    //     let Some(owner) = self.state.wallet() else {
+    //         return Err("no wallet keypair yet".to_string());
+    //     };
+    //     let Some(dex) = self.state.o_dex.as_ref() else {
+    //         return Err("dex state not ready".to_string());
+    //     };
+    //     let phoenix = dex.phoenix();
+    //     // Markets are matched by symbol here for readability -- a real
+    //     // strategy that already knows its asset_id (e.g. from
+    //     // phoenix_config::PHOENIX_MARKETS at build time) can skip this
+    //     // lookup entirely.
+    //     let Some(market) = phoenix.markets().iter().find(|m| m.symbol_str() == symbol) else {
+    //         return Err(format!("no Phoenix market for {symbol}"));
+    //     };
+    //     // `mark_price_usd()` returns `None` for a market that's never
+    //     // been priced yet (not "worth zero") -- see its own doc comment.
+    //     let Some(mark_price_usd) = market.mark_price_usd() else {
+    //         return Err(format!("{symbol} has no live mark price yet"));
+    //     };
+    //     if mark_price_usd <= 0.0 {
+    //         return Err(format!("{symbol} mark price is non-positive"));
+    //     }
+    //     // notional USD -> base asset units -> base lots (the integer
+    //     // unit Phoenix's own instruction data actually wants).
+    //     let base_units = notional_usd / mark_price_usd;
+    //     let num_base_lots = (base_units * 10f64.powi(market.base_lot_decimals as i32)) as u64;
+    //     if num_base_lots == 0 {
+    //         return Err("notional too small to produce a nonzero lot size".to_string());
+    //     }
+    //     // `Side::Bid` = long (buy), `Side::Ask` = short (sell) -- see
+    //     // `trader::dex::phoenix::ix::Side`.
+    //     let side = if long {
+    //         crate::trader::dex::phoenix::ix::Side::Bid
+    //     } else {
+    //         crate::trader::dex::phoenix::ix::Side::Ask
+    //     };
+    //     // `place_market_order` is immediate-or-cancel -- `0` here accepts
+    //     // any partial fill down to zero; raise it for an all-or-nothing
+    //     // guard. `client_order_id` is caller-chosen, used only for your
+    //     // own order tracking -- the current slot is a convenient,
+    //     // always-available value, not a protocol requirement.
+    //     let client_order_id = self.state.last_slot as u128;
+    //     phoenix
+    //         .place_market_order(
+    //             owner,
+    //             market.asset_id,
+    //             side,
+    //             num_base_lots,
+    //             0, // min_base_lots_to_fill
+    //             client_order_id,
+    //             self.wallet,
+    //         )
+    //         .map_err(|e| format!("place_market_order failed: {e}"))
+    // }
+    //
+    // fn example_lend_borrow_leg(&mut self, symbol: &str, notional_usd: f64) -> Result<(), String> {
+    //     let Some(owner) = self.state.wallet() else {
+    //         return Err("no wallet keypair yet".to_string());
+    //     };
+    //     let Some(dex) = self.state.o_dex.as_ref() else {
+    //         return Err("dex state not ready".to_string());
+    //     };
+    //     let Some(mint) = resolve_symbol_mint(symbol) else {
+    //         return Err(format!("no curated mint for {symbol}"));
+    //     };
+    //     let Some((reserve_id, reserve)) = dex.solend().reserve_by_mint(mint) else {
+    //         return Err(format!("Solend reserve for {symbol} not observed yet"));
+    //     };
+    //     let Some(decimals) = resolve_symbol_decimals(symbol) else {
+    //         return Err(format!("no decimals known for {symbol}"));
+    //     };
+    //     let raw_amount = (notional_usd / reserve.price_usd * 10f64.powi(decimals as i32)) as u64;
+    //
+    //     // This bot's own Solend obligation -- deterministic PDA, same
+    //     // `id` the real bootstrap flow uses (see
+    //     // `bootstrap_solend_obligation` above, which must have already
+    //     // run once -- create_obligation_account + init_obligation --
+    //     // before deposit/borrow against it will succeed on-chain).
+    //     const SOLEND_OBLIGATION_ID: u8 = 0;
+    //     let Some(owner_pk) = pubkey_from_account_id(&owner) else {
+    //         return Err("bad owner pubkey".to_string());
+    //     };
+    //     let obligation = account_id_from_pubkey(&solend::obligation_address(&owner_pk, SOLEND_OBLIGATION_ID));
+    //
+    //     // Deposit leg: wallet's own ATA for `mint` -> obligation collateral.
+    //     // `append_create_ata` (not `derive_ata`) for the collateral ATA --
+    //     // it may be the first time this wallet has ever touched this
+    //     // reserve's cToken mint, unlike `mint` itself which the wallet
+    //     // almost certainly already holds.
+    //     let Some(user_source_liquidity) = self.wallet.derive_ata(owner, mint) else {
+    //         return Err("failed to derive source ATA".to_string());
+    //     };
+    //     let Some(user_collateral_account) = self.wallet.append_create_ata(owner, reserve.collateral_mint) else {
+    //         return Err("failed to create collateral ATA".to_string());
+    //     };
+    //     dex.solend()
+    //         .deposit(
+    //             reserve_id,
+    //             obligation,
+    //             raw_amount,
+    //             owner,
+    //             user_source_liquidity,
+    //             user_collateral_account,
+    //             self.wallet,
+    //         )
+    //         .map_err(|e| format!("solend deposit failed: {e}"))?;
+    //
+    //     // Borrow leg -- illustrative only: borrowing against the same
+    //     // asset you just deposited as its own collateral isn't a
+    //     // sensible real strategy (a real borrow-hedge leg borrows a
+    //     // *different* asset against this collateral). `deposit_reserves`
+    //     // lists every reserve this obligation has collateral in --
+    //     // Solend needs it to compute borrowing power across all of them,
+    //     // not just the one being borrowed from.
+    //     let Some(user_destination_liquidity) = self.wallet.derive_ata(owner, mint) else {
+    //         return Err("failed to derive destination ATA".to_string());
+    //     };
+    //     dex.solend()
+    //         .borrow(
+    //             reserve_id,
+    //             obligation,
+    //             raw_amount / 2,
+    //             owner,
+    //             user_destination_liquidity,
+    //             &[reserve_id],
+    //             self.wallet,
+    //         )
+    //         .map_err(|e| format!("solend borrow failed: {e}"))
+    // }
+    // ────────────────────────────────────────────────────────────────
 
     /// How often (in slots) to report this wallet's most-referenced
     /// accounts back to the optimizer via `MessageSend::
@@ -1044,7 +1214,7 @@ impl<'a> StateHelper<'a> {
     /// bytes): `28 + 100*36 = 3628`.
     const ACCOUNT_USAGE_REPORT_MAX_ENTRIES: usize = 100;
 
-    fn execute_spot_leg(
+    fn example_spot_leg(
         &mut self,
         mint_in: AccountId,
         mint_out: AccountId,
@@ -1326,13 +1496,13 @@ impl<'a> StateHelper<'a> {
         }
         for (symbol, account_id, amount_in) in sells {
             log_warn!(": rebalance SELL {} amount_in={}", symbol, amount_in);
-            if let Err(e) = self.execute_spot_leg(account_id, mint_usdc, amount_in) {
+            if let Err(e) = self.example_spot_leg(account_id, mint_usdc, amount_in) {
                 log_error!(": rebalance SELL {} failed: {}", symbol, e);
             }
         }
         for (symbol, account_id, amount_in) in buys {
             log_warn!(": rebalance BUY {} amount_in={}", symbol, amount_in);
-            if let Err(e) = self.execute_spot_leg(mint_usdc, account_id, amount_in) {
+            if let Err(e) = self.example_spot_leg(mint_usdc, account_id, amount_in) {
                 log_error!(": rebalance BUY {} failed: {}", symbol, e);
             }
         }

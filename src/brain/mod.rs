@@ -42,6 +42,7 @@ use crate::{
 use std::{cell::UnsafeCell, collections::VecDeque, rc::Rc};
 
 pub(crate) mod configuration;
+pub(crate) mod custom;
 pub(crate) mod message;
 pub(crate) mod state;
 
