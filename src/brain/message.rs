@@ -36,7 +36,8 @@ pub enum CustomMessageInbound {
     /// "Phase 0". Pushed periodically, refreshed in place (see
     /// `on_message` below), not accumulated. Same 24-byte wire shape as
     /// `TargetAllocation` (16-byte zero-padded symbol + 8-byte LE `f64`),
-    /// mirroring `optimizer/brain/testperpv1/message.go`'s `DoLstApy`.
+    /// mirroring the `DoLstApy` encoder optimizer's `brain/testperpv1`
+    /// package had (since removed).
     LstApy(String, f64),
     /// One-shot, independent of any strategy state: proves the generic
     /// `transactionprocessor::batch` host import routed to Astralane

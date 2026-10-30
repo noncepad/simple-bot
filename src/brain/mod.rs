@@ -1,15 +1,17 @@
-//! testperpv1 -- **not a real strategy.** A literal copy of
-//! `perpfundingv1` (same `EventHandler`/`StateHelper`/module shape,
-//! same `on_load`/message handling), except `StateHelper::evaluate` is
-//! replaced with a real-transaction smoke test: bootstrap a Solend
-//! obligation, deposit a small amount of USDC, withdraw it, then do the
-//! same for Kamino. Exists to close a real gap found in the session that
-//! wrote it -- hand-built Python/`solders` scripts had verified the
-//! on-chain instruction shapes directly against mainnet, but never
-//! exercised the actual compiled Rust/WASM runtime (`Wallet` batching,
-//! the `on_account` subscription machinery, event-driven `evaluate()`
-//! dispatch) doing the same thing. See `state::TestPhase`'s doc comment
-//! for the real state machine.
+//! strategyv1 -- the example strategy, and the one this bot runs
+//! (`StrategyV1Hook`, constructed in `src/lib.rs`). To write your own,
+//! change this module's files in place -- see SKILL.md.
+//!
+//! **Not a real trading strategy as shipped.** It started as
+//! `testperpv1`, a copy of `perpfundingv1` (same `EventHandler`/
+//! `StateHelper`/module shape, same `on_load`/message handling) whose
+//! `StateHelper::evaluate` is a real-transaction smoke test: bootstrap a
+//! Solend obligation, deposit a small amount of USDC, withdraw it, then
+//! do the same for Kamino. That proved the compiled Rust/WASM runtime
+//! (`Wallet` batching, the `on_account` subscription machinery,
+//! event-driven `evaluate()` dispatch) can send those transactions. See
+//! `state::TestPhase`'s doc comment for that state machine -- most
+//! strategies replace it.
 //!
 //! # Event flow
 //! ```text
@@ -42,7 +44,6 @@ use crate::{
 use std::{cell::UnsafeCell, collections::VecDeque, rc::Rc};
 
 pub(crate) mod configuration;
-pub(crate) mod custom;
 pub(crate) mod message;
 pub(crate) mod state;
 
@@ -110,12 +111,12 @@ impl EventHandler for StrategyV1Hook {
         }
         outbound.flush();
         parser.outbound.replace(outbound);
-        log_info!("testperpv1: on_load complete");
+        log_info!("strategyv1: on_load complete");
         Ok(())
     }
 
     fn on_unload(&mut self) -> Result<(), CatscopeGuestError> {
-        log_info!("testperpv1: on_unload");
+        log_info!("strategyv1: on_unload");
         Ok(())
     }
 
@@ -125,7 +126,7 @@ impl EventHandler for StrategyV1Hook {
             parser.inbound.take().unwrap()
         };
         let mut helper = self.helper();
-        log_debug!("testperpv1: event - +++++");
+        log_debug!("strategyv1: event - +++++");
         match event {
             Event::Stdin(data) => {
                 msg_in.on_data(&data, |action| {
@@ -168,11 +169,11 @@ impl EventHandler for StrategyV1Hook {
         // guest's perspective -- both just silently never return -- so
         // this closes that gap too.
         if n_written > 0 {
-            log_warn!("testperpv1: writing {n_written} outbound message(s), flushing stdout");
+            log_warn!("strategyv1: writing {n_written} outbound message(s), flushing stdout");
         }
         outbound.flush();
         if n_written > 0 {
-            log_warn!("testperpv1: outbound flush returned");
+            log_warn!("strategyv1: outbound flush returned");
         }
         parser.outbound.replace(outbound);
         Ok(())
