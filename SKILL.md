@@ -2,9 +2,9 @@
 
 Instructions for an agent (human or AI) asked to add or modify a trading
 strategy in this repo. Read this whole file before touching code — the
-short version is "copy `src/brain/testperpv1/`, rename things, rewrite
-`evaluate_inner`," but the details below matter for getting a strategy
-that actually compiles and runs inside the real WASM bot runtime.
+short version is "edit the StrategyV1 example in `src/brain/` in place,
+rewriting `evaluate_inner`," but the details below matter for getting a
+strategy that actually compiles and runs inside the real WASM bot runtime.
 
 ## What this repo is
 
@@ -38,8 +38,11 @@ catscope-rust-bot (`pub(crate)` → `pub`) or adding a dependency to
 
 ## The brain module pattern
 
-Every strategy lives in its own directory under `src/brain/` with four
-files, following `src/brain/testperpv1/`'s shape exactly:
+The strategy lives directly in `src/brain/` as four files — StrategyV1
+(`StrategyV1Hook`), the example the bot runs today. There is one strategy
+per bot: you change these four files in place, rather than adding a new
+directory beside them (nothing compiles a directory under `src/brain/`
+unless `src/brain/mod.rs` declares it).
 
 - **`mod.rs`** — the `Hook` struct (holds `Rc<UnsafeCell<...>>` handles to
   parser, wallet, configuration, state, graph, poller) and the
@@ -50,7 +53,8 @@ files, following `src/brain/testperpv1/`'s shape exactly:
   which wallet, anything resolved once at startup or on the `Wallet`
   message arriving. Kept free of any WIT host-import calls in `Default`
   (those calls abort outside the real WASM guest runtime — see the
-  `set()`/`Default` split in `testperpv1::configuration::Configuration`).
+  `set()`/`Default` split in `src/brain/configuration.rs`'s
+  `Configuration`).
 - **`message.rs`** — the wire protocol: `CustomMessageInbound` (messages
   the Go-side brain sends down, e.g. wallet key, target allocation, a
   live APY update) and `CustomMessageOutbound` (anything sent back up —
@@ -58,7 +62,7 @@ files, following `src/brain/testperpv1/`'s shape exactly:
   Each variant has a corresponding Go-side encoder in
   `optimizer/brain/<strategy>/message.go` — the wire format (key byte +
   fixed-size value) must match on both sides, see the doc comments on
-  `testperpv1::message::CustomMessageInbound`'s variants for the exact
+  `src/brain/message.rs`'s `CustomMessageInbound` variants for the exact
   byte layout convention.
 - **`state.rs`** — the actual strategy. A `State` struct (persistent
   data: open positions, cooldown timers, epoch tracking) and a
@@ -101,31 +105,28 @@ pub trait EventHandler {
 }
 ```
 
-## Step-by-step: adding a new strategy
+## Step-by-step: writing your strategy
 
-1. **Copy the template.**
-   ```
-   cp -r src/brain/testperpv1 src/brain/<your_strategy>
-   ```
-2. **Register the module** in `src/brain/mod.rs`:
-   ```rust
-   pub mod your_strategy;
-   ```
-3. **Rename the public type** in `<your_strategy>/mod.rs`: rename
-   `TestPerpV1Hook` (struct, `impl` blocks, `new()`) to something
+1. **Start from the example.** `src/brain/` holds StrategyV1, the one
+   strategy the bot runs: `mod.rs`, `configuration.rs`, `message.rs` and
+   `state.rs`. Change these files in place. Don't copy them into a new
+   directory — `src/brain/mod.rs` *is* the strategy module, and a new
+   directory under it isn't compiled at all.
+2. **Optionally rename the public type** in `src/brain/mod.rs`: rename
+   `StrategyV1Hook` (struct, `impl` blocks, `new()`) to something
    strategy-specific, e.g. `YourStrategyHook`. Everything else in that
    file (the `EventHandler` impl, `helper()`, field shapes) stays as-is
-   unless your strategy needs extra fields on `Hook` itself (rare —
+   unless your strategy needs extra fields on `Hook` itself (rare -
    almost everything belongs on `State`/`StateHelper` instead).
-4. **Wire it up** in `src/lib.rs` — this is the one line that actually
-   selects which strategy runs:
+3. **Keep `src/lib.rs` in step** — this is the one line that selects
+   which strategy runs. If you renamed the type, rename it here too:
    ```rust
-   let b = brain::your_strategy::YourStrategyHook::new(Rc::new(UnsafeCell::new(Parser::default())));
+   let b = brain::StrategyV1Hook::new(Rc::new(UnsafeCell::new(Parser::default())));
    ```
-5. **Write the actual strategy** in `<your_strategy>/state.rs`:
-   - Strip out what you don't need from the copied `State`/`StateHelper`
-     (testperpv1 carries Solend/Kamino/Phoenix basis-trade legs, LST-loop
-     projection logging, and a real-tx smoke-test state machine —
+4. **Write the actual strategy** in `src/brain/state.rs`:
+   - Strip out what you don't need from the example's `State`/
+     `StateHelper` (it carries Solend/Kamino/Phoenix basis-trade legs,
+     LST-loop projection logging, and a real-tx smoke-test state machine -
      `TestPhase` — none of which your strategy necessarily needs).
    - Put your entry/exit decision logic in `evaluate_inner()` (or
      whatever you rename it to) — this runs after every event, see
@@ -139,15 +140,16 @@ pub trait EventHandler {
      via the `*_config` modules (`kamino_config`, `router_pools_config`,
      `top_pools_config`, etc.) — see catscope-rust-bot's `src/lib.rs` for
      the full list, all reachable here via the glob re-export.
-6. **Extend the wire protocol** in `<your_strategy>/message.rs` only if
-   the Go-side brain needs to push new config/data down (new
+5. **Extend the wire protocol** in `src/brain/message.rs` only if the
+   Go-side brain needs to push new config/data down (new
    `CustomMessageInbound` variant) or your strategy needs to report
    something back up (new `CustomMessageOutbound` variant). Add the
    matching encoder/decoder on the Go side in
    `optimizer/brain/<your_strategy>/message.go` — the two must agree
    byte-for-byte.
-7. **Adjust `configuration.rs`** only if your strategy needs different
-   static config (different mints, different slippage default, etc.).
+6. **Adjust `src/brain/configuration.rs`** only if your strategy needs
+   different static config (different mints, different slippage default,
+   etc.).
 
 ## Data build-time dependency (why `cargo build` might fail with "file not found")
 
